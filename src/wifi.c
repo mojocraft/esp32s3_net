@@ -37,5 +37,5 @@ K_THREAD_DEFINE(
 	WIFI_THREAD_PRIORITY,
 	0,
 	0	
-)
+);
 
