@@ -16,7 +16,7 @@ static K_SEM_DEFINE(wifi_event_sem, 0, 1);
 static atomic_t wifi_connected;
 static struct net_mgmt_event_callback wifi_mgmt_cb;
 
-static const struct wifi_connect_req_params params = {
+static struct wifi_connect_req_params params = {
 	.ssid        = SSID,
 	.ssid_length = sizeof(SSID) - 1,
 	.psk         = PASSWORD,
@@ -89,6 +89,7 @@ static void wifi_thread_entry(void *a, void *b, void *c)
 			k_sleep(K_SECONDS(2));
 		} else {
 			int ret = wifi_connect_once();
+			LOG_INF("wifi connecting...");
 
 			if (ret == 0) {
 				/* 请求已提交, 等结果事件; 带超时是防止事件丢失后
