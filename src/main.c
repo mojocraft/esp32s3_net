@@ -7,7 +7,7 @@ LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 int main(void)
 {
 	while(1) {
-		k_msleep(1000);
+		k_msleep(5000);
 		LOG_INF("This is a test.");
 	}
 	
