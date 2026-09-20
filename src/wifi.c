@@ -59,6 +59,7 @@ static int wifi_connect_once(void)
 {
 	struct net_if *iface = net_if_get_default();
 
+	k_msleep(2000);
 	if (!iface) {
 		return -ENODEV;
 	}
@@ -88,6 +89,7 @@ static void wifi_thread_entry(void *a, void *b, void *c)
 			/* 掉线后稍等, 给驱动内部自动重连留时间 */
 			k_sleep(K_SECONDS(2));
 		} else {
+			k_sleep(K_SECONDS(2));
 			int ret = wifi_connect_once();
 			LOG_INF("wifi connecting...");
 
