@@ -35,12 +35,14 @@ static void wifi_event_handler(struct net_mgmt_event_callback *cb,
 	if (mgmt_event == NET_EVENT_WIFI_CONNECT_RESULT) {
 		if (status->status) {
 			if (status->status == -1) {
-				/* 驱动处于 CONNECTING/未就绪时 raise 的"假失败"
-				 * (esp_wifi_drv.c esp32_wifi_connect), 属正常现象 */
-				LOG_INF("wifi connect busy (-1), will retry");
-			} else {
-				LOG_ERR("wifi connect failed %d", status->status);
+				/* 驱动处于 CONNECTING/已连接时 raise 的"假失败"
+				 * (esp_wifi_drv.c esp32_wifi_connect): 驱动状态
+				 * 并未改变, 不能清 wifi_connected, 也不给信号量,
+				 * 让 wifi 线程继续等真正的连接/断开结果事件 */
+				LOG_INF("wifi connect busy (-1), ignore");
+				return;
 			}
+			LOG_ERR("wifi connect failed %d", status->status);
 			atomic_set(&wifi_connected, 0);
 		} else {
 			LOG_INF("wifi connected");
