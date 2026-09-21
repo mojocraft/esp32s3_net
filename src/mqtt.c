@@ -32,7 +32,6 @@ LOG_MODULE_REGISTER(mqtt_sub, LOG_LEVEL_INF);
 /* ================================================= */
 
 static struct mqtt_client client;
-
 static struct sockaddr_storage broker;
 
 static uint8_t rx_buf[512];
@@ -118,13 +117,20 @@ static int mqtt_broker_init(void)
  */
 static struct mqtt_topic topics[] =
 {
-    {
-        .topic = {
-            .utf8 = (const uint8_t *)SUB_TOPIC,
-            .size = sizeof(SUB_TOPIC)-1,
-        },
-        .qos = MQTT_QOS_0_AT_MOST_ONCE,
-    }
+    	{
+        	.topic = {
+            		.utf8 = (const uint8_t *)SUB_TOPIC,
+            		.size = sizeof(SUB_TOPIC)-1,
+        	},
+        	.qos = MQTT_QOS_0_AT_MOST_ONCE,
+    	},
+	{
+		.topic = {
+			.utf8 = (const uint8_t *)"computer/set/led",
+			.size = sizeof("computer/set/led") - 1,
+		},
+		.qos = MQTT_QOS_0_AT_MOST_ONCE,
+	}
 };
 
 
@@ -165,13 +171,13 @@ static void mqtt_event_handler(struct mqtt_client *c, const struct mqtt_evt *evt
     case MQTT_EVT_PUBLISH: {
         const struct mqtt_publish_param *p = &evt->param.publish;
         uint32_t len = p->message.payload.len;
-        LOG_INF("MQTT message");
-        LOG_INF("topic:%.*s", p->message.topic.topic.size, p->message.topic.topic.utf8);
+        LOG_INF("MQTT message received.");
+        // LOG_INF("topic:%.*s", p->message.topic.topic.size, p->message.topic.topic.utf8);
         if(len < sizeof(payload_buf)) {
             ret = mqtt_readall_publish_payload(c, payload_buf, len);
             if(ret >= 0) {
                 payload_buf[len]=0;
-                LOG_INF("payload:%s", payload_buf);
+                LOG_INF("[topic: %.*s]: %s", p->message.topic.topic.size, p->message.topic.topic.utf8, payload_buf);
             }
         }
         break;
