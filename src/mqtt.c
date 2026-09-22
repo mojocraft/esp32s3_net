@@ -58,13 +58,12 @@ static atomic_t msg_id = ATOMIC_INIT(0);
 
 static uint16_t mqtt_msg_id(void)
 {
-    uint16_t id;
-    do {
-        id = (uint16_t)
-            (atomic_inc(&msg_id) & 0xffff);
-    } while (id == 0);
+	uint16_t id;
+	do {
+		id = (uint16_t)(atomic_inc(&msg_id) & 0xffff);
+	} while (id == 0);
 
-    return id;
+	return id;
 }
 
 /*
@@ -74,23 +73,22 @@ static uint16_t mqtt_msg_id(void)
  */
 static void net_event_handler(struct net_mgmt_event_callback *cb, uint32_t event, struct net_if *iface)
 {
-    if(event == NET_EVENT_IPV4_ADDR_ADD) {
-        LOG_INF("IPv4 address obtained");
-        network_ready = true;
-    }
+	if(event == NET_EVENT_IPV4_ADDR_ADD) {
+		LOG_INF("IPv4 address obtained");
+		network_ready = true;
+	}
 }
 
 static void wait_network_ready(void)
 {
+    	net_mgmt_init_event_callback(&net_cb, net_event_handler, NET_EVENT_IPV4_ADDR_ADD);
+    	net_mgmt_add_event_callback(&net_cb);
+	LOG_INF("Waiting network...");
 
-    net_mgmt_init_event_callback(&net_cb, net_event_handler, NET_EVENT_IPV4_ADDR_ADD);
-    net_mgmt_add_event_callback(&net_cb);
-
-    while(!network_ready) {
-        LOG_INF("Waiting network...");
-        k_sleep(K_SECONDS(1));
-    }
-    LOG_INF("Network ready");
+    	while(!network_ready) {
+        	k_sleep(K_SECONDS(1));
+   	}
+    	LOG_INF("Network ready");
 }
 
 /*
@@ -98,18 +96,18 @@ static void wait_network_ready(void)
  */
 static int mqtt_broker_init(void)
 {
-    struct sockaddr_in *broker4;
+    	struct sockaddr_in *broker4;
 
-    broker4 = (struct sockaddr_in *)&broker;
-    memset(&broker,0,sizeof(broker));
+	broker4 = (struct sockaddr_in *)&broker;
+	memset(&broker,0,sizeof(broker));
 
-    broker4->sin_family = AF_INET;
-    broker4->sin_port = htons(BROKER_PORT);
-    if(inet_pton(AF_INET, BROKER_IP, &broker4->sin_addr) != 1) {
-        LOG_ERR("Invalid broker IP");
-        return -EINVAL;
-    }
-    return 0;
+	broker4->sin_family = AF_INET;
+	broker4->sin_port = htons(BROKER_PORT);
+	if(inet_pton(AF_INET, BROKER_IP, &broker4->sin_addr) != 1) {
+		LOG_ERR("Invalid broker IP");
+		return -EINVAL;
+	}
+	return 0;
 }
 
 /*
@@ -135,9 +133,9 @@ static struct mqtt_topic topics[] =
 
 
 static struct mqtt_subscription_list subscription = {
-    .list = topics,
-    .list_count = ARRAY_SIZE(topics),
-    .message_id = 0,
+	.list = topics,
+	.list_count = ARRAY_SIZE(topics),
+	.message_id = 0,
 };
 
 /*
@@ -145,27 +143,25 @@ static struct mqtt_subscription_list subscription = {
  */
 static void mqtt_event_handler(struct mqtt_client *c, const struct mqtt_evt *evt)
 {
-    int ret;
-    switch(evt->type) {
-    case MQTT_EVT_CONNACK:
-        if(evt->result != 0) {
-            LOG_ERR("CONNACK failed %d", evt->result);
-            mqtt_connected=false;
-            return;
-        }
-        LOG_INF("MQTT connected");
+	int ret;
+	switch(evt->type) {
+	case MQTT_EVT_CONNACK:
+		if(evt->result != 0) {
+		    LOG_ERR("CONNACK failed %d", evt->result);
+		    mqtt_connected=false;
+		    return;
+	}
+	LOG_INF("MQTT connected");
         mqtt_connected=true;
         subscription.message_id = mqtt_msg_id();
         ret = mqtt_subscribe(c, &subscription);
         if(ret < 0) {
-            LOG_ERR("subscribe failed %d", ret);
+		LOG_ERR("subscribe failed %d", ret);
         }
 	break;
 
     case MQTT_EVT_SUBACK:
-        LOG_INF(
-            "SUBACK received id=%d",
-            evt->param.suback.message_id);
+	LOG_INF("SUBACK received id=%d", evt->param.suback.message_id);
         break;
 
     case MQTT_EVT_PUBLISH: {
@@ -174,17 +170,17 @@ static void mqtt_event_handler(struct mqtt_client *c, const struct mqtt_evt *evt
         LOG_INF("MQTT message received.");
         // LOG_INF("topic:%.*s", p->message.topic.topic.size, p->message.topic.topic.utf8);
         if(len < sizeof(payload_buf)) {
-            ret = mqtt_readall_publish_payload(c, payload_buf, len);
-            if(ret >= 0) {
-                payload_buf[len]=0;
-                LOG_INF("[topic: %.*s]: %s", p->message.topic.topic.size, p->message.topic.topic.utf8, payload_buf);
-            }
-        }
-        break;
+		ret = mqtt_readall_publish_payload(c, payload_buf, len);
+		if(ret >= 0) {
+			payload_buf[len]=0;
+			LOG_INF("[topic: %.*s]: %s", p->message.topic.topic.size, p->message.topic.topic.utf8, payload_buf);
+		}
+	}
+	break;
     }
 
     case MQTT_EVT_DISCONNECT:
-        LOG_WRN("MQTT disconnected");
+	LOG_WRN("MQTT disconnected");
         mqtt_connected=false;
         break;
 
@@ -210,7 +206,7 @@ static void mqtt_thread(void *a, void *b, void *c)
 	wait_network_ready();
 
 	/*
-	* 2. broker address
+	* 2. broker init
 	*/
 	ret = mqtt_broker_init();
 
@@ -248,7 +244,6 @@ static void mqtt_thread(void *a, void *b, void *c)
 		}
 		LOG_ERR("mqtt_connect failed %d", ret);
 		k_sleep(K_SECONDS(5));
-		continue;
 	}
 	/*
 	* 5. MQTT loop
