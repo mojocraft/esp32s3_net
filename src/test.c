@@ -77,7 +77,7 @@ static uint16_t generate_mqtt_id(void)
 static struct mqtt_topic topics[] = {
 	{
 		.topic = {
-			.utf8 = (const uint8_t *)"topic1",
+			.utf8 = (const uint8_t *)"esp32_s2/percent",
 			.size = sizeof("topic1") - 1,
 		},
 		.qos = MQTT_QOS_0_AT_MOST_ONCE,
