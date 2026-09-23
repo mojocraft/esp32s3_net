@@ -10,5 +10,6 @@ project(esp32s3_devkitc)
 target_sources(app PRIVATE
 	src/main.c
 	src/wifi.c
-	src/mqtt.c
+#	src/mqtt.c
+	src/test.c
 )
