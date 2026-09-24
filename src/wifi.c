@@ -91,9 +91,9 @@ static void wifi_thread_entry(void *a, void *b, void *c)
 			/* 掉线后稍等, 给驱动内部自动重连留时间 */
 			k_sleep(K_SECONDS(2));
 		} else {
-			k_sleep(K_SECONDS(2));
 			int ret = wifi_connect_once();
 			LOG_INF("wifi connecting...");
+			k_sleep(K_SECONDS(1));
 
 			if (ret == 0) {
 				/* 请求已提交, 等结果事件; 带超时是防止事件丢失后
