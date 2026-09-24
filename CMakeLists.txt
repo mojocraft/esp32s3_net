@@ -11,5 +11,6 @@ target_sources(app PRIVATE
 	src/main.c
 	src/wifi.c
 #	src/mqtt.c
-	src/test.c
+#	src/test.c
+	src/http.c
 )
