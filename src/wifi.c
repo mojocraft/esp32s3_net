@@ -24,7 +24,7 @@ static struct wifi_connect_req_params params = {
 	.channel     = 0,
 	.security    = WIFI_SECURITY_TYPE_PSK,
 	.band        = WIFI_FREQ_BAND_2_4_GHZ,
-	.mfp         = WIFI_MFP_OPTIONAL,
+	.mfp         = WIFI_MFP_DISABLE,
 };
 
 static void wifi_event_handler(struct net_mgmt_event_callback *cb,
@@ -61,7 +61,7 @@ static int wifi_connect_once(void)
 {
 	struct net_if *iface = net_if_get_default();
 
-	k_msleep(2000);
+	// k_msleep(2000);
 	if (!iface) {
 		return -ENODEV;
 	}
@@ -82,7 +82,7 @@ static void wifi_thread_entry(void *a, void *b, void *c)
 
 	/* 上电后先等驱动/PHY 稳定再发起首次连接:
 	 * 否则第一次连接大概率以 WIFI_REASON_TIMEOUT(39) 失败 */
-	k_sleep(K_SECONDS(2));
+	k_sleep(K_SECONDS(5));
 
 	while (1) {
 		if (atomic_get(&wifi_connected)) {
