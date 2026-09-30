@@ -6,10 +6,15 @@
 // #include <zephyr/posix/arpa/inet.h>
 
 #include <zephyr/net/net_ip.h>
+#include <zephyr/net/net_if.h>
+#include <zephyr/net/net_mgmt.h>
 #include <zephyr/net/socket.h>
 #include <zephyr/net/tls_credentials.h>
+#include <zephyr/net/sntp.h>
+#include <time.h>
 #include <zephyr/net/http/client.h>
 
+#include <zephyr/sys/atomic.h>
 #include <string.h>
 #include <errno.h>
 
@@ -23,6 +28,31 @@ LOG_MODULE_REGISTER(http, LOG_LEVEL_INF);
 
 static int sockfd = -1;
 static uint8_t recv_buf[512];
+
+/* 等待 WiFi + DHCP 拿到 IPv4, 而不是盲睡固定时长:
+ * 首次连接含全信道扫描可能 >10s, 网络异常时也要能醒过来报错 */
+static atomic_t have_ipv4;
+static struct net_mgmt_event_callback ip_cb;
+
+static void ip_event_handler(struct net_mgmt_event_callback *cb,
+			     uint32_t mgmt_event, struct net_if *iface)
+{
+	if (mgmt_event == NET_EVENT_IPV4_ADDR_ADD) {
+		atomic_set(&have_ipv4, 1);
+	}
+}
+
+static bool ipv4_available(void)
+{
+	struct net_if *iface = net_if_get_default();
+
+	return iface && net_if_ipv4_get_global_addr(iface, NET_ADDR_DHCP) != NULL;
+}
+
+static bool network_up(void)
+{
+	return ipv4_available() || atomic_get(&have_ipv4);
+}
 
 static int connect_socket(void) 
 {
@@ -52,16 +82,16 @@ static int connect_socket(void)
 		/* 设 ca 证书 tag */
 		ret = zsock_setsockopt(sockfd, SOL_TLS, TLS_SEC_TAG_LIST, sec_tag_list, sizeof(sec_tag_list));
 		if (ret < 0) {
-			LOG_ERR("set TLS_HOSTNAME: %s", strerror(errno));
+			LOG_ERR("set SEC_TAG_LIST: %s", strerror(errno));
 			zsock_close(sockfd);
 			sockfd = -1;
 			continue;
 		}
-		
-		/* 设 SIN hostname (通配符证书 *.crfsdi.com.cn 必需) */
-		ret = zsock_setsockopt(sockfd, SOL_TLS, TLS_HOSTNAME, HTTPS_HOSTNAME, strlen(HTTPS_HOSTNAME));
+
+		/* 设 SNI hostname (通配符证书 *.crfsdi.com.cn 必需) */
+		ret = zsock_setsockopt(sockfd, SOL_TLS, TLS_HOSTNAME, HTTPS_HOSTNAME, strlen(HTTPS_HOSTNAME) + 1);
 		if (ret < 0) {
-			LOG_ERR("set SEC_TAG_LIST: %s", strerror(errno));
+			LOG_ERR("set TLS_HOSTNAME: %s", strerror(errno));
 			zsock_close(sockfd);
 			sockfd = -1;
 			continue;
@@ -128,35 +158,83 @@ void http_thread_entry(void *a, void *b, void *c)
 	}
 	LOG_INF("CA cert registered.");
 
-	k_sleep(K_SECONDS(20));
+	/* 注册 IPV4 事件回调(整个生命周期只注册一次) */
+	net_mgmt_init_event_callback(&ip_cb, ip_event_handler,
+				     NET_EVENT_IPV4_ADDR_ADD);
+	net_mgmt_add_event_callback(&ip_cb);
 
-	/* 连接,内部用IPPROTO_TLS_1_2 */
-	sockfd = connect_socket();
-	if (sockfd == -1) {
-		LOG_ERR("Connect socket failed!");
-		return;
-	} else {
-		LOG_INF("Connect socket done!");
-	}
-	
 	struct http_request req = { 0 };
 	req.method = HTTP_GET;
 	req.url = "/backendapi/auth/publicKey";
-	req.host = HTTPS_HOSTNAME; 
+	req.host = HTTPS_HOSTNAME;
 	req.protocol = "HTTP/1.1";
 	req.response = response_cb;
 	req.recv_buf = recv_buf;
 	req.recv_buf_len = sizeof(recv_buf);
 
-	ret = http_client_req(sockfd, &req, 2000, "IPv4 GET");
-	if (ret < 0) {
-		LOG_ERR("Client error %d", ret);
-	}
+	/* 循环: 等网络 → HTTPS 流程 → 周期重测。
+	 * 工地网络可能几分钟后才通, 不能等一次就退出 */
+	bool was_up = false;
+	int sntp_tries = 0;
 
-	zsock_close(sockfd);
+	while (1) {
+		bool up = network_up();
+		if (!up) {
+			was_up = false;
+			k_sleep(K_SECONDS(2));
+			continue;
+		}
+		if (!was_up) {
+			LOG_INF("Network ready (IPv4 acquired)");
+			was_up = true;
+		}
 
-	while (1) { 
-		k_msleep(200);
+		/* 尽力同步系统时间(最多试 3 次)。当前
+		 * TLS_PEER_VERIFY_NONE 不校验证书, 失败不致命 */
+		if (sntp_tries < 3) {
+			sntp_tries++;
+			struct sntp_time ts;
+			int sntp_ret = sntp_simple("120.25.115.20", 15000, &ts);
+			if (sntp_ret == 0) {
+			    struct timespec now = {
+				.tv_sec  = ts.seconds,
+				.tv_nsec = ((uint64_t)ts.fraction * 1000000000ULL) >> 32,
+			    };
+			    clock_settime(CLOCK_REALTIME, &now);
+			    LOG_INF("SNTP synced, time=%llu", ts.seconds);
+			    sntp_tries = 3; /* 成功即止 */
+			} else {
+			    LOG_WRN("SNTP failed: %d, continue anyway", sntp_ret);
+			}
+		}
+
+		/* 弱网下 TLS 握手 + 首次请求可能较慢, 失败重试几次 */
+		for (int attempt = 0; attempt < 3; attempt++) {
+			/* 连接,内部用IPPROTO_TLS_1_2; Zephyr 3.7 的 TLS 握手
+			 * 在 zsock_connect() 内完成 */
+			sockfd = connect_socket();
+			if (sockfd == -1) {
+				LOG_ERR("Connect socket failed (attempt %d)!", attempt + 1);
+				k_sleep(K_SECONDS(5));
+				continue;
+			}
+			LOG_INF("Connect socket done!");
+
+			ret = http_client_req(sockfd, &req, 10000, "IPv4 GET");
+			if (ret < 0) {
+				LOG_ERR("Client error %d (attempt %d)", ret, attempt + 1);
+			}
+
+			zsock_close(sockfd);
+			sockfd = -1;
+			if (ret >= 0) {
+				break;
+			}
+			k_sleep(K_SECONDS(5));
+		}
+
+		/* 每 10s 重测一轮; 断网后回到上面的等待 */
+		k_sleep(K_SECONDS(10));
 	}
 
 }

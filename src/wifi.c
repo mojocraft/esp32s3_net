@@ -14,7 +14,11 @@ LOG_MODULE_REGISTER(wifi, LOG_LEVEL_INF);
 static K_SEM_DEFINE(wifi_event_sem, 0, 1);
 /* 跨线程(回调上下文 vs wifi 线程)共享的状态, 必须用原子操作 */
 static atomic_t wifi_connected;
+/* 注意: net_mgmt 派发时按 LAYER 位精确匹配回调的事件掩码,
+ * WIFI 事件是 L2 层、IPV4 事件是 L3 层, 混在同一个掩码里会导致
+ * 两个层的事件都匹配不上, 回调永远不被调用 —— 必须分开注册 */
 static struct net_mgmt_event_callback wifi_mgmt_cb;
+static struct net_mgmt_event_callback ipv4_mgmt_cb;
 
 static struct wifi_connect_req_params params = {
 	.ssid        = SSID,
@@ -56,6 +60,24 @@ static void wifi_event_handler(struct net_mgmt_event_callback *cb,
 	}
 }
 
+static void ipv4_event_handler(struct net_mgmt_event_callback *cb,
+			       uint32_t mgmt_event, struct net_if *iface)
+{
+	if (mgmt_event == NET_EVENT_IPV4_ADDR_ADD) {
+		/* CONFIG_ESP32_WIFI_STA_AUTO_DHCPV4=y 时驱动连接成功后只启动
+		 * DHCP, 不 raise CONNECT_RESULT(见 esp_wifi_drv.c 的
+		 * esp_wifi_handle_sta_connect_event), 所以真正"可通信"的标志
+		 * 是 DHCP 拿到 IPv4 地址 */
+		LOG_INF("wifi connected (IPv4 acquired)");
+		atomic_set(&wifi_connected, 1);
+		k_sem_give(&wifi_event_sem);
+	} else if (mgmt_event == NET_EVENT_IPV4_ADDR_DEL) {
+		LOG_WRN("wifi IPv4 address lost");
+		atomic_set(&wifi_connected, 0);
+		k_sem_give(&wifi_event_sem);
+	}
+}
+
 /* 每次调用都重新取 iface, 取不到返回 -ENODEV 由上层退避重试 */
 static int wifi_connect_once(void)
 {
@@ -79,6 +101,10 @@ static void wifi_thread_entry(void *a, void *b, void *c)
 	net_mgmt_init_event_callback(&wifi_mgmt_cb, wifi_event_handler,
 		NET_EVENT_WIFI_CONNECT_RESULT | NET_EVENT_WIFI_DISCONNECT_RESULT);
 	net_mgmt_add_event_callback(&wifi_mgmt_cb);
+
+	net_mgmt_init_event_callback(&ipv4_mgmt_cb, ipv4_event_handler,
+		NET_EVENT_IPV4_ADDR_ADD | NET_EVENT_IPV4_ADDR_DEL);
+	net_mgmt_add_event_callback(&ipv4_mgmt_cb);
 
 	/* 上电后先等驱动/PHY 稳定再发起首次连接:
 	 * 否则第一次连接大概率以 WIFI_REASON_TIMEOUT(39) 失败 */
