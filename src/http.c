@@ -25,6 +25,12 @@ LOG_MODULE_REGISTER(http, LOG_LEVEL_INF);
 #define CA_CERTIFICATE_TAG 	1
 #define HTTPS_HOSTNAME 		"jgyw.crfsdi.com.cn"
 #define HTTPS_PORT 		"51111"
+static const char *extra_headers[] = {
+	"Connection: close\r\n",
+	"Accept: */*\r\n",
+	"User-Agent: Zephyr-HTTP-Client/1.0\r\n",
+	NULL
+};
 
 static int sockfd = -1;
 static uint8_t recv_buf[512];
@@ -171,6 +177,7 @@ void http_thread_entry(void *a, void *b, void *c)
 	req.response = response_cb;
 	req.recv_buf = recv_buf;
 	req.recv_buf_len = sizeof(recv_buf);
+	req.header_fields = extra_headers;
 
 	/* 循环: 等网络 → HTTPS 流程 → 周期重测。
 	 * 工地网络可能几分钟后才通, 不能等一次就退出 */
